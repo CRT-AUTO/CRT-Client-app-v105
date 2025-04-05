@@ -29,6 +29,7 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
   const buttonId = `fb-button-${Math.random().toString(36).substring(2, 10)}`;
   const [sdkLoaded, setSdkLoaded] = useState(false);
   const [sdkError, setSdkError] = useState('');
+  const [buttonRendered, setButtonRendered] = useState(false);
 
   // Define the global callback function that the FB button will call
   useEffect(() => {
@@ -80,6 +81,7 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
           
           // Then parse the XFBML
           window.FB.XFBML.parse(buttonRef.current);
+          setButtonRendered(true);
         } catch (e) {
           console.error("Error parsing XFBML:", e);
           setSdkError('Failed to initialize Facebook login. Please refresh the page.');
@@ -110,6 +112,7 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
         window.FB.XFBML.parse(buttonRef.current);
         setSdkError('');
         setSdkLoaded(true);
+        setButtonRendered(true);
       } catch (e) {
         console.error("Error in manual initialization:", e);
       }
@@ -145,6 +148,7 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
             window.FB.XFBML.parse(buttonRef.current);
             setSdkError('');
             setSdkLoaded(true);
+            setButtonRendered(true);
           }
         }
       };
@@ -163,16 +167,34 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
       return;
     }
     
-    const redirectUri = encodeURIComponent(`${window.location.origin}/oauth/facebook/callback`);
-    const loginUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scope)}&response_type=code`;
-    
-    console.log('Redirecting to Facebook login URL:', loginUrl);
-    window.location.href = loginUrl;
+    // Save the current auth session in localStorage before redirecting
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        // Store a minimal version of the session to maintain auth state
+        localStorage.setItem('fb_auth_state', JSON.stringify({
+          userId: session.user.id,
+          expiresAt: session.expires_at,
+          timestamp: Date.now()
+        }));
+      }
+      
+      const redirectUri = encodeURIComponent(`${window.location.origin}/oauth/facebook/callback`);
+      const loginUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scope)}&response_type=code`;
+      
+      console.log('Redirecting to Facebook login URL:', loginUrl);
+      window.location.href = loginUrl;
+    }).catch(error => {
+      console.error('Error getting session:', error);
+      setSdkError(`Failed to prepare for Facebook login: ${error.message}`);
+    });
   };
 
   return (
     <div className="space-y-3">
       <div className="facebook-login-container" ref={buttonRef}>
+        {!buttonRendered && (
+          <div className="fb-button-placeholder"></div>
+        )}
         <div 
           id={buttonId}
           className="fb-login-button" 
