@@ -150,8 +150,16 @@ export interface FacebookAuthResponse {
 }
 
 export interface FacebookStatusResponse {
-  status: 'connected' | 'not_authorized' | 'unknown';
+  status: 'connected' | 'not_authorized' | 'unknown' | 'error';
   authResponse: FacebookAuthResponse | null;
+}
+
+export interface FacebookPage {
+  id: string;
+  name: string;
+  access_token: string;
+  category: string;
+  tasks?: string[];
 }
 
 // Authentication status interface
@@ -161,4 +169,13 @@ export interface AuthStatus {
   user: User | null;
   loading: boolean;
   error: string | null;
+}
+
+// Add this declaration to make TypeScript recognize FB as a property of the window object
+declare global {
+  interface Window {
+    FB: any;
+    checkLoginState: () => void;
+    fbAsyncInit: () => void;
+  }
 }
