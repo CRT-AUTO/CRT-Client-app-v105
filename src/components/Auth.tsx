@@ -23,36 +23,27 @@ export default function Auth({ initialError = null }: AuthProps) {
   const addDebugInfo = (message: string) => {
     console.log(message);
     setDebugInfo(prev => {
-      // Limit to last 10 messages to prevent memory issues
       const newMessages = [...prev, `${new Date().toISOString().slice(11, 19)}: ${message}`];
       return newMessages.slice(-10);
     });
   };
 
-  // Check if we're returning from a Facebook OAuth flow
+  // Check if returning from a Facebook OAuth flow
   useEffect(() => {
     const checkForFacebookRedirect = () => {
       const isFromFacebook = 
         location.pathname.includes('/auth') && 
         localStorage.getItem('fb_auth_state') !== null;
-
       if (isFromFacebook) {
         setIsRestoringFacebookAuth(true);
         addDebugInfo('Detected return from Facebook OAuth flow');
-        
         try {
-          // Parse the saved auth state
           const savedState = JSON.parse(localStorage.getItem('fb_auth_state') || '{}');
-          
           if (savedState && savedState.timestamp) {
             const ageInMinutes = (Date.now() - savedState.timestamp) / (60 * 1000);
             addDebugInfo(`Facebook auth state is ${ageInMinutes.toFixed(1)} minutes old`);
-            
-            // If it's recent (less than 15 minutes old), we'll preserve it
             if (ageInMinutes < 15) {
               addDebugInfo('Facebook auth state is recent, will preserve it');
-              
-              // Redirect to callback page to complete the process
               navigate('/oauth/facebook/callback' + window.location.search, { replace: true });
               return;
             }
@@ -62,21 +53,17 @@ export default function Auth({ initialError = null }: AuthProps) {
         }
       }
     };
-    
     checkForFacebookRedirect();
   }, [location, navigate]);
 
-  // Force a cleanup of any existing session when this component mounts,
-  // but only if we're not in the process of restoring a Facebook auth
+  // Force cleanup of any existing session unless restoring Facebook auth
   useEffect(() => {
     const cleanupSession = async () => {
-      // Skip session cleanup if we're restoring Facebook auth
       if (isRestoringFacebookAuth) {
         addDebugInfo('Skipping session cleanup because we are restoring Facebook auth');
         setSessionCleared(true);
         return;
       }
-
       try {
         addDebugInfo("Performing forced sign out to clear any stale sessions");
         await clearSupabaseAuth();
@@ -87,7 +74,6 @@ export default function Auth({ initialError = null }: AuthProps) {
         setSessionCleared(true);
       }
     };
-    
     cleanupSession();
   }, [isRestoringFacebookAuth]);
 
@@ -96,34 +82,25 @@ export default function Auth({ initialError = null }: AuthProps) {
     setLoading(true);
     setError(null);
     addDebugInfo(`Attempting ${isSignUp ? 'signup' : 'login'} with email: ${email}`);
-
     try {
-      // First clear any existing sessions again to be 100% sure
       if (!isRestoringFacebookAuth) {
         await clearSupabaseAuth();
       }
-      
       let result;
-      
       if (isSignUp) {
         result = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: {
-              role: 'customer' // Default role for new users
+              role: 'customer'
             }
           }
         });
-        
         if (result.error) throw result.error;
         addDebugInfo("Signup successful");
-        
-        // Store result for debugging
         setAuthResult(result);
-        
         if (result.data.user && !result.data.session) {
-          // Email confirmation is required
           setError('Please check your email to confirm your account before logging in.');
         }
       } else {
@@ -131,19 +108,13 @@ export default function Auth({ initialError = null }: AuthProps) {
           email,
           password,
         });
-        
         if (result.error) throw result.error;
         addDebugInfo("Login successful");
-        
-        // Store result for debugging
         setAuthResult(result);
-        
-        // Log session details - helpful for debugging expiration issues
         if (result.data.session) {
           const expiresAt = new Date(result.data.session.expires_at * 1000);
           const now = new Date();
           const expiresInMinutes = Math.round((expiresAt.getTime() - now.getTime()) / 60000);
-          
           addDebugInfo(`Session expires in ${expiresInMinutes} minutes (at ${expiresAt.toLocaleTimeString()})`);
           addDebugInfo(`Has refresh token: ${!!result.data.session.refresh_token}`);
         }
@@ -156,8 +127,6 @@ export default function Auth({ initialError = null }: AuthProps) {
     }
   };
 
-  // If sessions haven't been cleared yet, show a loading indicator
-  // Skip this if we're restoring Facebook auth
   if (!sessionCleared && !isRestoringFacebookAuth) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -170,7 +139,6 @@ export default function Auth({ initialError = null }: AuthProps) {
     );
   }
 
-  // If we're restoring Facebook auth, show a different loading indicator
   if (isRestoringFacebookAuth) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -202,7 +170,6 @@ export default function Auth({ initialError = null }: AuthProps) {
                 {error}
               </div>
             )}
-            
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                 Email address
@@ -270,7 +237,6 @@ export default function Auth({ initialError = null }: AuthProps) {
             </div>
           </div>
           
-          {/* Environment information for debugging */}
           <div className="mt-6 p-3 bg-gray-50 rounded-md">
             <div className="flex justify-between items-center">
               <p className="text-xs text-gray-500 font-semibold">Environment:</p>
@@ -338,7 +304,6 @@ export default function Auth({ initialError = null }: AuthProps) {
             </div>
           )}
           
-          {/* Facebook Auth State Debug Info */}
           {localStorage.getItem('fb_auth_state') && (
             <div className="mt-6 p-3 bg-green-50 border border-green-200 rounded-md">
               <p className="text-xs text-green-700 font-semibold mb-1">Facebook Auth State Found</p>
