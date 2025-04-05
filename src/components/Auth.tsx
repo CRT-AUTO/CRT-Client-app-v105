@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { MessageSquare } from 'lucide-react';
 import { supabase, clearSupabaseAuth } from '../lib/supabase';
 
@@ -15,6 +16,9 @@ export default function Auth({ initialError = null }: AuthProps) {
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [authResult, setAuthResult] = useState<any>(null);
   const [sessionCleared, setSessionCleared] = useState(false);
+  const [isRestoringFacebookAuth, setIsRestoringFacebookAuth] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const addDebugInfo = (message: string) => {
     console.log(message);
@@ -25,51 +29,67 @@ export default function Auth({ initialError = null }: AuthProps) {
     });
   };
 
-  // Force a cleanup of any existing session when this component mounts
+  // Check if we're returning from a Facebook OAuth flow
+  useEffect(() => {
+    const checkForFacebookRedirect = () => {
+      const isFromFacebook = 
+        location.pathname.includes('/auth') && 
+        localStorage.getItem('fb_auth_state') !== null;
+
+      if (isFromFacebook) {
+        setIsRestoringFacebookAuth(true);
+        addDebugInfo('Detected return from Facebook OAuth flow');
+        
+        try {
+          // Parse the saved auth state
+          const savedState = JSON.parse(localStorage.getItem('fb_auth_state') || '{}');
+          
+          if (savedState && savedState.timestamp) {
+            const ageInMinutes = (Date.now() - savedState.timestamp) / (60 * 1000);
+            addDebugInfo(`Facebook auth state is ${ageInMinutes.toFixed(1)} minutes old`);
+            
+            // If it's recent (less than 15 minutes old), we'll preserve it
+            if (ageInMinutes < 15) {
+              addDebugInfo('Facebook auth state is recent, will preserve it');
+              
+              // Redirect to callback page to complete the process
+              navigate('/oauth/facebook/callback' + window.location.search, { replace: true });
+              return;
+            }
+          }
+        } catch (e) {
+          addDebugInfo(`Error parsing Facebook auth state: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        }
+      }
+    };
+    
+    checkForFacebookRedirect();
+  }, [location, navigate]);
+
+  // Force a cleanup of any existing session when this component mounts,
+  // but only if we're not in the process of restoring a Facebook auth
   useEffect(() => {
     const cleanupSession = async () => {
-      try {
-        // First try clearing with our helper function
-        await clearSupabaseAuth();
-        
-        // Extra step: manually clear all storage
-        try {
-          localStorage.clear();
-          sessionStorage.clear();
-          
-          // Also try to manually clear specific Supabase keys
-          const keyPrefixes = ['sb-', 'supabase', '@supabase', 'SUPABASE_AUTH'];
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && keyPrefixes.some(prefix => key.startsWith(prefix))) {
-              localStorage.removeItem(key);
-            }
-          }
-          
-          for (let i = 0; i < sessionStorage.length; i++) {
-            const key = sessionStorage.key(i);
-            if (key && keyPrefixes.some(prefix => key.startsWith(prefix))) {
-              sessionStorage.removeItem(key);
-            }
-          }
-        } catch (storageError) {
-          addDebugInfo(`Error clearing storage: ${storageError instanceof Error ? storageError.message : 'Unknown'}`);
-        }
-        
-        // Final step: perform an explicit signOut
-        await supabase.auth.signOut({ scope: 'global' });
-        
-        addDebugInfo("Successfully cleared all authentication data");
+      // Skip session cleanup if we're restoring Facebook auth
+      if (isRestoringFacebookAuth) {
+        addDebugInfo('Skipping session cleanup because we are restoring Facebook auth');
         setSessionCleared(true);
+        return;
+      }
+
+      try {
+        addDebugInfo("Performing forced sign out to clear any stale sessions");
+        await clearSupabaseAuth();
+        addDebugInfo("Forced sign out completed");
       } catch (err) {
-        addDebugInfo(`Error clearing session: ${err instanceof Error ? err.message : 'Unknown'}`);
-        // Still mark as cleared to allow the user to continue
+        addDebugInfo(`Error during forced sign out: ${err instanceof Error ? err.message : 'Unknown'}`);
+      } finally {
         setSessionCleared(true);
       }
     };
-
+    
     cleanupSession();
-  }, []);
+  }, [isRestoringFacebookAuth]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,7 +99,9 @@ export default function Auth({ initialError = null }: AuthProps) {
 
     try {
       // First clear any existing sessions again to be 100% sure
-      await clearSupabaseAuth();
+      if (!isRestoringFacebookAuth) {
+        await clearSupabaseAuth();
+      }
       
       let result;
       
@@ -135,13 +157,27 @@ export default function Auth({ initialError = null }: AuthProps) {
   };
 
   // If sessions haven't been cleared yet, show a loading indicator
-  if (!sessionCleared) {
+  // Skip this if we're restoring Facebook auth
+  if (!sessionCleared && !isRestoringFacebookAuth) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
           <h2 className="text-xl font-medium text-gray-900">Preparing Authentication</h2>
           <p className="mt-2 text-sm text-gray-500">Clearing any existing sessions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If we're restoring Facebook auth, show a different loading indicator
+  if (isRestoringFacebookAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <h2 className="text-xl font-medium text-gray-900">Completing Facebook Login</h2>
+          <p className="mt-2 text-sm text-gray-500">Please wait while we restore your session...</p>
         </div>
       </div>
     );
@@ -298,6 +334,24 @@ export default function Auth({ initialError = null }: AuthProps) {
                     } : 'None'
                   }, null, 2)}
                 </pre>
+              </div>
+            </div>
+          )}
+          
+          {/* Facebook Auth State Debug Info */}
+          {localStorage.getItem('fb_auth_state') && (
+            <div className="mt-6 p-3 bg-green-50 border border-green-200 rounded-md">
+              <p className="text-xs text-green-700 font-semibold mb-1">Facebook Auth State Found</p>
+              <div className="text-xs text-green-700">
+                <p>Detected saved Facebook authentication state. Click below to restore:</p>
+                <button 
+                  onClick={() => {
+                    navigate('/oauth/facebook/callback' + window.location.search);
+                  }}
+                  className="mt-2 px-2 py-1 bg-green-100 text-green-800 rounded text-xs hover:bg-green-200"
+                >
+                  Complete Facebook Connection
+                </button>
               </div>
             </div>
           )}
