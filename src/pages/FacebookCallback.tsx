@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { MessageSquare, AlertCircle, Facebook } from 'lucide-react';
-import axios from 'axios';
+import { restoreFacebookAuthState } from '../lib/facebookAuth';
 
 // Type definition for Facebook Page
 interface FacebookPage {
@@ -19,6 +19,7 @@ export default function FacebookCallback() {
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [availablePages, setAvailablePages] = useState<FacebookPage[]>([]);
+  const [authRestoreAttempted, setAuthRestoreAttempted] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -27,7 +28,30 @@ export default function FacebookCallback() {
     setDebugInfo(prev => [...prev, `${new Date().toISOString().slice(11, 19)}: ${message}`]);
   };
 
+  // First, make sure our authentication is restored
   useEffect(() => {
+    const restoreAuth = async () => {
+      if (authRestoreAttempted) return;
+      
+      addDebugInfo('Attempting to restore authentication state');
+      const restored = await restoreFacebookAuthState();
+      
+      if (restored) {
+        addDebugInfo('Authentication state restored successfully');
+      } else {
+        addDebugInfo('Could not restore authentication state, will attempt to continue anyway');
+      }
+      
+      setAuthRestoreAttempted(true);
+    };
+    
+    restoreAuth();
+  }, [authRestoreAttempted]);
+
+  // Then process the Facebook callback once auth restore is attempted
+  useEffect(() => {
+    if (!authRestoreAttempted) return;
+    
     async function handleFacebookCallback() {
       try {
         // Extract code from URL
@@ -55,9 +79,6 @@ export default function FacebookCallback() {
 
         addDebugInfo(`Authenticated as user ID: ${userData.user.id}`);
 
-        // In this implementation we'll use localStorage to help with demos and testing,
-        // but in production this would involve a server-side call to the Meta API
-        
         // Check for pre-stored pages from Facebook login
         let pages: FacebookPage[] = [];
         const storedPagesStr = localStorage.getItem('fb_pages');
@@ -130,7 +151,7 @@ export default function FacebookCallback() {
     }
 
     handleFacebookCallback();
-  }, [location]);
+  }, [location, authRestoreAttempted]);
 
   // Function to save the selected page connection
   const saveConnection = async (userId: string, page: FacebookPage) => {
@@ -190,6 +211,7 @@ export default function FacebookCallback() {
       
       // Clean up stored pages
       localStorage.removeItem('fb_pages');
+      localStorage.removeItem('fb_auth_state');
       
       addDebugInfo('Facebook page connected successfully');
       setStatus('success');
