@@ -24,23 +24,32 @@ export default function Settings() {
       try {
         setLoading(true);
         setError(null);
+        
+        // Get the current user
         const { data: userData } = await supabase.auth.getUser();
         if (!userData.user) {
           throw new Error('User not authenticated');
         }
+
         setUserEmail(userData.user.email || '');
         setUserSince(new Date(userData.user.created_at || Date.now()).toLocaleDateString());
+        
+        // Load social connections
         try {
           const connections = await getSocialConnections();
           setSocialConnections(connections);
         } catch (connError) {
           console.error('Error loading social connections:', connError);
+          // Continue loading other data
         }
+        
+        // Load webhook configs
         try {
           const webhooks = await getWebhookConfigsByUserId(userData.user.id);
           setWebhookConfigs(webhooks);
         } catch (webhookError) {
           console.error('Error loading webhook configs:', webhookError);
+          // Continue loading other data
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -49,6 +58,7 @@ export default function Settings() {
         setLoading(false);
       }
     }
+
     loadData();
   }, []);
 
@@ -68,18 +78,28 @@ export default function Settings() {
   const handleFacebookConnect = async () => {
     setFbConnecting(true);
     setError(null);
+    
     try {
       addFbDebugInfo("Starting Facebook connection process");
+      
+      // Check if FB SDK is loaded correctly
       if (typeof window.FB === 'undefined') {
         addFbDebugInfo("Facebook SDK not loaded, trying direct OAuth flow");
+        
+        // Direct to OAuth flow
+        // IMPORTANT: Use the fixed redirect URL that matches your Meta app configuration
         const redirectUri = `https://crt-tech.org/oauth/facebook/callback`;
         const appId = import.meta.env.VITE_META_APP_ID;
+        
         if (!appId) {
           throw new Error('Facebook App ID is missing in environment variables');
         }
+        
+        // Save the current auth session in localStorage before redirecting
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
+            // Store a minimal version of the session to maintain auth state
             localStorage.setItem('fb_auth_state', JSON.stringify({
               userId: session.user.id,
               expiresAt: session.expires_at,
@@ -90,17 +110,22 @@ export default function Settings() {
         } catch (sessionError) {
           addFbDebugInfo(`Error saving auth state: ${sessionError instanceof Error ? sessionError.message : 'Unknown error'}`);
         }
+        
         addFbDebugInfo(`Redirecting to Facebook OAuth URL with fixed redirect: ${redirectUri}`);
         window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email,pages_show_list,pages_messaging&response_type=code`;
         return;
       }
       
+      // If FB SDK is loaded, use it to initiate login
       addFbDebugInfo("Facebook SDK loaded, checking login status");
       const statusResponse = await checkFacebookLoginStatus();
       
       if (statusResponse.status === 'connected' && statusResponse.authResponse) {
+        // User is already logged into Facebook and authorized the app
         addFbDebugInfo("User already connected to Facebook, proceeding to page selection");
+        
         try {
+          // Save the current auth session in localStorage before redirecting
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
             localStorage.setItem('fb_auth_state', JSON.stringify({
@@ -113,16 +138,24 @@ export default function Settings() {
         } catch (sessionError) {
           addFbDebugInfo(`Error saving auth state: ${sessionError instanceof Error ? sessionError.message : 'Unknown error'}`);
         }
+        
+        // Redirect to the OAuth flow to complete the process
+        // IMPORTANT: Use the fixed redirect URL that matches your Meta app configuration
         const redirectUri = `https://crt-tech.org/oauth/facebook/callback`;
         const appId = import.meta.env.VITE_META_APP_ID;
+        
         if (!appId) {
           throw new Error('Facebook App ID is missing in environment variables');
         }
+        
         addFbDebugInfo(`Redirecting to Facebook OAuth flow with fixed redirect: ${redirectUri}`);
         window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email,pages_show_list,pages_messaging&response_type=code`;
       } else {
+        // User needs to log in or authorize the app
         addFbDebugInfo(`Facebook status: ${statusResponse.status}, initiating login flow`);
+        
         const loginResponse = await loginWithFacebook();
+        
         if (loginResponse.status === 'connected') {
           addFbDebugInfo("Facebook login successful, redirect should happen automatically");
         } else {
@@ -149,16 +182,22 @@ export default function Settings() {
       setError("No connection ID provided");
       return;
     }
+    
     if (!confirm('Are you sure you want to disconnect this account?')) return;
+    
     try {
       const { error } = await supabase
         .from('social_connections')
         .delete()
         .eq('id', connectionId);
+        
       if (error) throw error;
+      
+      // Update the list by removing the deleted connection
       setSocialConnections(prevConnections => 
         prevConnections.filter(conn => conn.id !== connectionId)
       );
+      
       alert('Successfully disconnected account');
     } catch (error) {
       console.error('Error disconnecting account:', error);
@@ -168,6 +207,7 @@ export default function Settings() {
 
   const handleDataDeletion = () => {
     if (window.confirm('Are you sure you want to request deletion of all your data? This action cannot be undone.')) {
+      // In a real implementation, you would call your API to initiate the data deletion process
       window.location.href = '/deletion-status?code=MANUAL' + Math.random().toString(36).substring(2, 10).toUpperCase();
     }
   };
@@ -235,6 +275,7 @@ export default function Settings() {
         <div className="bg-white shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
             <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Account Information</h3>
+            
             <div className="space-y-6">
               <div className="flex items-center">
                 <div className="bg-indigo-100 rounded-full p-3 mr-4">
@@ -245,6 +286,7 @@ export default function Settings() {
                   <p className="mt-1 text-lg text-gray-900">{userEmail}</p>
                 </div>
               </div>
+              
               <div className="flex items-center">
                 <div className="bg-green-100 rounded-full p-3 mr-4">
                   <ShieldCheck className="h-6 w-6 text-green-600" />
@@ -254,6 +296,7 @@ export default function Settings() {
                   <p className="mt-1 text-lg text-gray-900">Customer</p>
                 </div>
               </div>
+              
               <div className="flex items-center">
                 <div className="bg-blue-100 rounded-full p-3 mr-4">
                   <Globe className="h-6 w-6 text-blue-600" />
@@ -263,6 +306,7 @@ export default function Settings() {
                   <p className="mt-1 text-lg text-gray-900">{userSince}</p>
                 </div>
               </div>
+              
               <div className="pt-5 border-t border-gray-200">
                 <button
                   onClick={handleSignOut}
@@ -283,11 +327,13 @@ export default function Settings() {
             <p className="mt-1 text-sm text-gray-500">
               Connect your social media accounts to use with the AI assistant
             </p>
+            
             <div className="mt-5 space-y-4">
               <div className="border rounded-md overflow-hidden">
                 <div className="bg-gray-50 px-4 py-3 border-b">
                   <h4 className="text-sm font-medium text-gray-700">Facebook Pages</h4>
                 </div>
+                
                 {getFacebookConnection() ? (
                   <div className="p-4">
                     <div className="flex items-center justify-between">
@@ -346,6 +392,7 @@ export default function Settings() {
                 <div className="bg-gray-50 px-4 py-3 border-b">
                   <h4 className="text-sm font-medium text-gray-700">Instagram Business Account</h4>
                 </div>
+                
                 {getInstagramConnection() ? (
                   <div className="p-4">
                     <div className="flex items-center justify-between">
@@ -406,6 +453,7 @@ export default function Settings() {
               <p className="mt-2 text-sm text-gray-500">
                 Manage your data and privacy settings. You can request deletion of your data at any time.
               </p>
+
               <div className="mt-6 border-t border-gray-200 pt-6">
                 <h4 className="text-md font-medium text-gray-900">Data Deletion</h4>
                 <p className="mt-2 text-sm text-gray-500">
@@ -421,6 +469,7 @@ export default function Settings() {
                   </button>
                 </div>
               </div>
+
               <div className="mt-6 border-t border-gray-200 pt-6">
                 <h4 className="text-md font-medium text-gray-900">Facebook Data Deletion</h4>
                 <p className="mt-2 text-sm text-gray-500">
@@ -442,6 +491,7 @@ export default function Settings() {
                   </a>
                 </div>
               </div>
+
               <div className="mt-6 border-t border-gray-200 pt-6">
                 <h4 className="text-md font-medium text-gray-900">Privacy Policy</h4>
                 <p className="mt-2 text-sm text-gray-500">
@@ -465,5 +515,3 @@ export default function Settings() {
     </div>
   );
 }
-
-export default Settings;
