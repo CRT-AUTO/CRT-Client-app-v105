@@ -15,7 +15,7 @@ interface FacebookPage {
 export default function FacebookCallback() {
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(true);
-  const [status, setStatus] = useState<'processing' | 'exchanging_code' | 'getting_pages' | 'saving' | 'success' | 'error'>('processing');
+  const [status, setStatus] = useState<'processing' | 'auth_restore' | 'exchanging_code' | 'getting_pages' | 'saving' | 'success' | 'error'>('processing');
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [availablePages, setAvailablePages] = useState<FacebookPage[]>([]);
@@ -34,19 +34,58 @@ export default function FacebookCallback() {
       if (authRestoreAttempted) return;
       
       addDebugInfo('Attempting to restore authentication state');
+      setStatus('auth_restore');
+      
+      // Check if we have saved auth state
+      const savedState = localStorage.getItem('fb_auth_state');
+      if (savedState) {
+        try {
+          const parsedState = JSON.parse(savedState);
+          addDebugInfo(`Found saved auth state for user ${parsedState.userId.slice(0, 8)}...`);
+          
+          // Check if the state is recent enough (less than 15 minutes old)
+          const stateAgeMinutes = (Date.now() - parsedState.timestamp) / (60 * 1000);
+          addDebugInfo(`Auth state is ${stateAgeMinutes.toFixed(1)} minutes old`);
+          
+          if (stateAgeMinutes > 15) {
+            addDebugInfo('Auth state is too old, will not use it');
+          }
+        } catch (e) {
+          addDebugInfo(`Error parsing saved auth state: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        }
+      } else {
+        addDebugInfo('No saved auth state found');
+      }
+      
+      // First check if we're already authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        addDebugInfo(`Already authenticated as ${session.user.email}`);
+        setAuthRestoreAttempted(true);
+        return;
+      }
+
       const restored = await restoreFacebookAuthState();
       
       if (restored) {
         addDebugInfo('Authentication state restored successfully');
       } else {
         addDebugInfo('Could not restore authentication state, will attempt to continue anyway');
+        
+        // We might need to redirect back to auth
+        if (!session) {
+          addDebugInfo('No active session, redirecting to auth page in 5 seconds...');
+          setTimeout(() => {
+            navigate('/auth', { state: { message: 'Session expired. Please log in again to complete Facebook connection.' } });
+          }, 5000);
+        }
       }
       
       setAuthRestoreAttempted(true);
     };
     
     restoreAuth();
-  }, [authRestoreAttempted]);
+  }, [navigate]);
 
   // Then process the Facebook callback once auth restore is attempted
   useEffect(() => {
@@ -151,7 +190,7 @@ export default function FacebookCallback() {
     }
 
     handleFacebookCallback();
-  }, [location, authRestoreAttempted]);
+  }, [location, authRestoreAttempted, navigate]);
 
   // Function to save the selected page connection
   const saveConnection = async (userId: string, page: FacebookPage) => {
@@ -209,7 +248,7 @@ export default function FacebookCallback() {
         }
       }
       
-      // Clean up stored pages
+      // Clean up stored pages and auth state
       localStorage.removeItem('fb_pages');
       localStorage.removeItem('fb_auth_state');
       
@@ -244,6 +283,10 @@ export default function FacebookCallback() {
     await saveConnection(user.id, selectedPage);
   };
 
+  const tryAgain = () => {
+    navigate('/settings');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -257,7 +300,21 @@ export default function FacebookCallback() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 text-center">
-          {status === 'processing' || status === 'exchanging_code' || status === 'saving' ? (
+          {status === 'auth_restore' && (
+            <>
+              <div className="flex justify-center mb-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+              </div>
+              <p className="text-gray-700">
+                Restoring your authentication...
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                Please wait while we complete the Facebook connection.
+              </p>
+            </>
+          )}
+
+          {(status === 'processing' || status === 'exchanging_code' || status === 'saving') && (
             <>
               <div className="flex justify-center mb-4">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -271,7 +328,9 @@ export default function FacebookCallback() {
                 This might take a moment.
               </p>
             </>
-          ) : status === 'getting_pages' && availablePages.length > 0 ? (
+          )} 
+          
+          {status === 'getting_pages' && availablePages.length > 0 ? (
             <>
               <h3 className="text-lg font-medium text-gray-900 mb-4">Select a Facebook Page</h3>
               <p className="mb-4 text-sm text-gray-500">Choose which Facebook Page you want to connect to your AI Assistant</p>
@@ -316,21 +375,38 @@ export default function FacebookCallback() {
               <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 mb-4 rounded-md text-sm">
                 {error}
               </div>
-              <button
-                onClick={() => navigate('/settings')}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                Go Back to Settings
-              </button>
+              <div className="space-y-3">
+                <button
+                  onClick={tryAgain}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  Go Back to Settings
+                </button>
+                
+                <p className="text-sm text-gray-500">or</p>
+                
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('fb_auth_state');
+                    navigate('/auth');
+                  }}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  Start Over with Login
+                </button>
+              </div>
             </>
-          ) : (
+          ) : status === 'success' ? (
             <>
+              <div className="flex justify-center mb-4">
+                <Facebook className="h-12 w-12 text-blue-600" />
+              </div>
               <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 mb-4 rounded-md text-sm">
                 Successfully connected to Facebook!
               </div>
               <p className="text-gray-700 mb-4">Redirecting you back to settings...</p>
             </>
-          )}
+          ) : null}
           
           {/* Debug info section */}
           {debugInfo.length > 0 && (
