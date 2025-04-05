@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { User, AuthStatus } from '../types';
 
 // Type definitions for Facebook responses
 export interface FacebookAuthResponse {
@@ -18,19 +19,17 @@ export interface FacebookPage {
   name: string;
   access_token: string;
   category: string;
-  tasks: string[];
+  tasks?: string[];
 }
 
-// Function to check Facebook login status
+// Check Facebook login status
 export function checkFacebookLoginStatus(): Promise<FacebookStatusResponse> {
   return new Promise((resolve) => {
-    // Make sure FB SDK is loaded
     if (typeof window.FB === 'undefined') {
       console.error('Facebook SDK not loaded');
       resolve({ status: 'error', authResponse: null });
       return;
     }
-
     window.FB.getLoginStatus((response) => {
       console.log('Facebook login status:', response);
       resolve(response as FacebookStatusResponse);
@@ -38,67 +37,46 @@ export function checkFacebookLoginStatus(): Promise<FacebookStatusResponse> {
   });
 }
 
-// The callback function that will be called from checkLoginState
+// Callback function called from checkLoginState
 export async function statusChangeCallback(response: FacebookStatusResponse): Promise<boolean> {
   return handleFacebookStatusChange(response);
 }
 
-// Handle status change
+// Handle status change – this function logs debug info, retrieves additional info and pages,
+// saves the minimal auth state in localStorage, then redirects to the OAuth flow.
 export function handleFacebookStatusChange(response: FacebookStatusResponse): Promise<boolean> {
   return new Promise(async (resolve) => {
     if (response.status === 'connected' && response.authResponse) {
-      // User is logged in to Facebook and has authorized the app
       console.log('Connected to Facebook, authorized app');
-      
       try {
-        // Get the Facebook access token and user ID
         const fbToken = response.authResponse.accessToken;
         const userId = response.authResponse.userID;
-        
         console.log('Facebook auth response:', {
           token: fbToken ? `${fbToken.substring(0, 10)}...` : 'missing',
           userId,
           expiresIn: response.authResponse.expiresIn
         });
-        
-        // Get additional user information from Facebook
+        // Optionally, get additional user info
         try {
           const userInfo = await getFacebookUserInfo(userId, fbToken);
           console.log('Facebook user info:', userInfo);
         } catch (userInfoError) {
           console.warn('Could not get Facebook user info:', userInfoError);
-          // Continue anyway
         }
-        
-        // Get user's Facebook pages
+        // Get Facebook pages and store in localStorage if available
         try {
           const pages = await getFacebookPages(fbToken);
           console.log('Facebook pages:', pages);
-          
           if (pages && pages.length > 0) {
-            // Store pages in localStorage for the callback to use
             localStorage.setItem('fb_pages', JSON.stringify(pages));
           }
         } catch (pagesError) {
           console.warn('Could not get Facebook pages:', pagesError);
-          // Continue anyway
         }
-        
-        // Initiate the Facebook OAuth flow
-        const appId = import.meta.env.VITE_META_APP_ID;
-        const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
-        
-        if (!appId) {
-          console.error('Facebook App ID is not configured');
-          resolve(false);
-          return;
-        }
-        
-        // Save the current auth session in localStorage before redirecting
+        // Save current auth session in localStorage
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
-            // Store a minimal version of the session to maintain auth state
             localStorage.setItem('fb_auth_state', JSON.stringify({
               userId: session.user.id,
               expiresAt: session.expires_at,
@@ -108,34 +86,22 @@ export function handleFacebookStatusChange(response: FacebookStatusResponse): Pr
         } catch (sessionError) {
           console.error('Error saving auth state:', sessionError);
         }
-        
-        // Redirect to Facebook OAuth dialog with code response type
-        // Code response type is required for server-side token exchange
-        const oauthUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public_profile,email,pages_show_list,pages_messaging`;
-        
-        console.log('Redirecting to Facebook OAuth:', oauthUrl);
-        window.location.href = oauthUrl;
-        
+        // Redirect to Facebook OAuth dialog with code response type (for server-side token exchange)
+        const appId = import.meta.env.VITE_META_APP_ID;
+        const redirectUri = `https://crt-tech.org/oauth/facebook/callback`;
+        if (!appId) {
+          console.error('Facebook App ID is not configured');
+          resolve(false);
+          return;
+        }
+        window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public_profile,email,pages_show_list,pages_messaging`;
         resolve(true);
       } catch (error) {
         console.error('Error handling Facebook login:', error);
         resolve(false);
       }
     } else if (response.status === 'not_authorized') {
-      // User is logged into Facebook but has not authorized the app
       console.log('Not authorized: User is logged into Facebook but has not authorized the app');
-      
-      // Redirect to Facebook OAuth dialog
-      const appId = import.meta.env.VITE_META_APP_ID;
-      const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
-      
-      if (!appId) {
-        console.error('Facebook App ID is not configured');
-        resolve(false);
-        return;
-      }
-      
-      // Save current auth state
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
@@ -148,15 +114,17 @@ export function handleFacebookStatusChange(response: FacebookStatusResponse): Pr
       } catch (error) {
         console.error('Error saving auth state:', error);
       }
-      
+      const appId = import.meta.env.VITE_META_APP_ID;
+      const redirectUri = `https://crt-tech.org/oauth/facebook/callback`;
+      if (!appId) {
+        console.error('Facebook App ID is not configured');
+        resolve(false);
+        return;
+      }
       window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email,pages_show_list,pages_messaging&response_type=code`;
-      
       resolve(false);
     } else {
-      // User is not logged into Facebook
       console.log('User is not logged into Facebook, initiating OAuth flow');
-      
-      // Save current auth state
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
@@ -169,50 +137,40 @@ export function handleFacebookStatusChange(response: FacebookStatusResponse): Pr
       } catch (error) {
         console.error('Error saving auth state:', error);
       }
-      
-      // Redirect to Facebook login
       const appId = import.meta.env.VITE_META_APP_ID;
-      const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
-      
+      const redirectUri = `https://crt-tech.org/oauth/facebook/callback`;
       if (!appId) {
         console.error('Facebook App ID is not configured');
         resolve(false);
         return;
       }
-      
       window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email,pages_show_list,pages_messaging&response_type=code`;
-      
       resolve(false);
     }
   });
 }
 
-// Function to check login state - follows Facebook's documentation pattern
+// Check login state using FB SDK
 export function checkLoginState() {
   if (typeof window.FB === 'undefined') {
     console.error('Facebook SDK not loaded when checking login state');
     return;
   }
-  
   window.FB.getLoginStatus(function(response: FacebookStatusResponse) {
     statusChangeCallback(response);
   });
 }
 
-// Function to initiate Facebook login
+// Initiate Facebook login
 export function loginWithFacebook(): Promise<FacebookStatusResponse> {
   return new Promise((resolve, reject) => {
     if (typeof window.FB === 'undefined') {
-      // If FB SDK is not loaded, redirect directly to the OAuth flow
       const appId = import.meta.env.VITE_META_APP_ID;
-      const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
-      
+      const redirectUri = `https://crt-tech.org/oauth/facebook/callback`;
       if (!appId) {
         reject(new Error('Facebook App ID is not configured'));
         return;
       }
-      
-      // Save current auth state
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
           localStorage.setItem('fb_auth_state', JSON.stringify({
@@ -221,7 +179,6 @@ export function loginWithFacebook(): Promise<FacebookStatusResponse> {
             timestamp: Date.now()
           }));
         }
-        
         window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public_profile,email,pages_show_list,pages_messaging`;
         reject(new Error('Facebook SDK not loaded, redirecting to OAuth flow'));
       }).catch(error => {
@@ -230,14 +187,11 @@ export function loginWithFacebook(): Promise<FacebookStatusResponse> {
       });
       return;
     }
-
     window.FB.login((response) => {
       console.log("Facebook login response:", response);
       if (response.status === 'connected') {
-        // Successful login, resolve with the response
         resolve(response as FacebookStatusResponse);
       } else {
-        // Login was not successful
         console.log("Facebook login was not successful:", response);
         resolve(response as FacebookStatusResponse);
       }
@@ -252,7 +206,6 @@ export function getFacebookUserInfo(userId: string, accessToken: string): Promis
       reject(new Error('Facebook SDK not loaded'));
       return;
     }
-    
     window.FB.api(
       `/${userId}`,
       'GET',
@@ -275,7 +228,6 @@ export function getFacebookPages(accessToken: string): Promise<FacebookPage[]> {
       reject(new Error('Facebook SDK not loaded'));
       return;
     }
-    
     window.FB.api(
       '/me/accounts',
       'GET',
@@ -285,8 +237,6 @@ export function getFacebookPages(accessToken: string): Promise<FacebookPage[]> {
           reject(response?.error || new Error('Failed to get pages'));
           return;
         }
-        
-        // Transform the response to match our FacebookPage interface
         const pages: FacebookPage[] = response.data.map((page: any) => ({
           id: page.id,
           name: page.name,
@@ -294,83 +244,53 @@ export function getFacebookPages(accessToken: string): Promise<FacebookPage[]> {
           category: page.category,
           tasks: page.tasks || []
         }));
-        
         resolve(pages);
       }
     );
   });
 }
 
-// Function to exchange authorization code for access token
-// In production, this should be done server-side to protect app secret
+// Exchange authorization code for access token
+// (This is a mock implementation – in production, perform this server-side.)
 export async function exchangeCodeForToken(code: string, redirectUri: string): Promise<string> {
-  // This is a mock implementation for demonstration
-  // In production, this would be a server-side API call
-  
   console.log(`Would exchange code ${code.substring(0, 10)}... for token`);
   console.log(`Using redirect URI: ${redirectUri}`);
-  
-  // Simulating the exchange process
   await new Promise(resolve => setTimeout(resolve, 1500));
-  
-  // Return a mock access token
   return `EAATk...${Math.random().toString(36).substring(2, 10)}`;
 }
 
-// Gets a long-lived page access token
-// In production, this should be done server-side
+// Exchange short-lived page token for a long-lived token
+// (Mock implementation – perform this securely server-side in production.)
 export async function getLongLivedPageToken(accessToken: string, pageId: string): Promise<string> {
-  // This is a mock implementation for demonstration
-  // In production, this would be a server-side API call to exchange the token
-  
   console.log(`Would exchange page token for ${pageId}`);
-  
-  // Simulating the exchange process
   await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Return a mock long-lived token
   return `EAATkLongLived...${Math.random().toString(36).substring(2, 10)}`;
 }
 
-// A helper function to check if the Facebook SDK is ready
+// Check if Facebook SDK is loaded
 export function isFacebookSDKLoaded(): boolean {
   return typeof window.FB !== 'undefined';
 }
 
-// Helper to restore saved auth state after returning from Facebook
+// Restore saved Facebook auth state after returning from Facebook
 export async function restoreFacebookAuthState(): Promise<boolean> {
   try {
     const savedState = localStorage.getItem('fb_auth_state');
-    if (!savedState) {
-      return false;
-    }
-    
+    if (!savedState) return false;
     const parsedState = JSON.parse(savedState);
     const { userId, expiresAt, timestamp } = parsedState;
-    
-    // If saved state is older than 15 minutes, ignore it
     if (Date.now() - timestamp > 15 * 60 * 1000) {
       localStorage.removeItem('fb_auth_state');
       return false;
     }
-    
-    // Check if we're already logged in
     const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      return true; // Already authenticated
-    }
-    
-    // Get the current session
+    if (session) return true;
     const { data, error } = await supabase.auth.refreshSession();
-    
     if (error || !data.session) {
       console.error('Failed to restore auth state:', error);
       return false;
     }
-    
-    // Clean up stored state
     localStorage.removeItem('fb_auth_state');
-    
     return true;
   } catch (error) {
     console.error('Error restoring Facebook auth state:', error);
