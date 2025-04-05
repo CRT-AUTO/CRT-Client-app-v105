@@ -3,7 +3,7 @@ export interface User {
   email: string;
   role?: string;
   created_at: string;
-  isAuthenticated?: boolean; // Added to track authentication status explicitly
+  isAuthenticated?: boolean;
 }
 
 export interface SocialConnection {
@@ -68,13 +68,13 @@ export interface WebhookConfig {
 }
 
 export interface MessageAnalytics {
-  name: string;  // weekday short name
-  date: string;  // full date
-  messages: number;  // total messages
-  facebook: number;  // facebook messages count
-  instagram: number;  // instagram messages count
-  userMessages: number;  // messages from users
-  assistantMessages: number;  // messages from assistant
+  name: string;
+  date: string;
+  messages: number;
+  facebook: number;
+  instagram: number;
+  userMessages: number;
+  assistantMessages: number;
 }
 
 export interface DashboardStats {
@@ -171,7 +171,6 @@ export interface AuthStatus {
   error: string | null;
 }
 
-// Add this declaration to make TypeScript recognize FB as a property of the window object
 declare global {
   interface Window {
     FB: any;
