@@ -23,15 +23,15 @@ export interface FacebookPage {
 
 // Function to check Facebook login status
 export function checkFacebookLoginStatus(): Promise<FacebookStatusResponse> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     // Make sure FB SDK is loaded
-    if (typeof FB === 'undefined') {
+    if (typeof window.FB === 'undefined') {
       console.error('Facebook SDK not loaded');
       resolve({ status: 'error', authResponse: null });
       return;
     }
 
-    FB.getLoginStatus((response) => {
+    window.FB.getLoginStatus((response) => {
       console.log('Facebook login status:', response);
       resolve(response as FacebookStatusResponse);
     });
@@ -39,7 +39,7 @@ export function checkFacebookLoginStatus(): Promise<FacebookStatusResponse> {
 }
 
 // The callback function that will be called from checkLoginState
-export function statusChangeCallback(response: FacebookStatusResponse): Promise<boolean> {
+export async function statusChangeCallback(response: FacebookStatusResponse): Promise<boolean> {
   return handleFacebookStatusChange(response);
 }
 
@@ -94,6 +94,21 @@ export function handleFacebookStatusChange(response: FacebookStatusResponse): Pr
           return;
         }
         
+        // Save the current auth session in localStorage before redirecting
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            // Store a minimal version of the session to maintain auth state
+            localStorage.setItem('fb_auth_state', JSON.stringify({
+              userId: session.user.id,
+              expiresAt: session.expires_at,
+              timestamp: Date.now()
+            }));
+          }
+        } catch (sessionError) {
+          console.error('Error saving auth state:', sessionError);
+        }
+        
         // Redirect to Facebook OAuth dialog with code response type
         // Code response type is required for server-side token exchange
         const oauthUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public_profile,email,pages_show_list,pages_messaging`;
@@ -120,12 +135,40 @@ export function handleFacebookStatusChange(response: FacebookStatusResponse): Pr
         return;
       }
       
+      // Save current auth state
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          localStorage.setItem('fb_auth_state', JSON.stringify({
+            userId: session.user.id,
+            expiresAt: session.expires_at,
+            timestamp: Date.now()
+          }));
+        }
+      } catch (error) {
+        console.error('Error saving auth state:', error);
+      }
+      
       window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email,pages_show_list,pages_messaging&response_type=code`;
       
       resolve(false);
     } else {
       // User is not logged into Facebook
       console.log('User is not logged into Facebook, initiating OAuth flow');
+      
+      // Save current auth state
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          localStorage.setItem('fb_auth_state', JSON.stringify({
+            userId: session.user.id,
+            expiresAt: session.expires_at,
+            timestamp: Date.now()
+          }));
+        }
+      } catch (error) {
+        console.error('Error saving auth state:', error);
+      }
       
       // Redirect to Facebook login
       const appId = import.meta.env.VITE_META_APP_ID;
@@ -146,12 +189,12 @@ export function handleFacebookStatusChange(response: FacebookStatusResponse): Pr
 
 // Function to check login state - follows Facebook's documentation pattern
 export function checkLoginState() {
-  if (typeof FB === 'undefined') {
+  if (typeof window.FB === 'undefined') {
     console.error('Facebook SDK not loaded when checking login state');
     return;
   }
   
-  FB.getLoginStatus(function(response: FacebookStatusResponse) {
+  window.FB.getLoginStatus(function(response: FacebookStatusResponse) {
     statusChangeCallback(response);
   });
 }
@@ -159,7 +202,7 @@ export function checkLoginState() {
 // Function to initiate Facebook login
 export function loginWithFacebook(): Promise<FacebookStatusResponse> {
   return new Promise((resolve, reject) => {
-    if (typeof FB === 'undefined') {
+    if (typeof window.FB === 'undefined') {
       // If FB SDK is not loaded, redirect directly to the OAuth flow
       const appId = import.meta.env.VITE_META_APP_ID;
       const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
@@ -169,12 +212,26 @@ export function loginWithFacebook(): Promise<FacebookStatusResponse> {
         return;
       }
       
-      window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public_profile,email,pages_show_list,pages_messaging`;
-      reject(new Error('Facebook SDK not loaded, redirecting to OAuth flow'));
+      // Save current auth state
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          localStorage.setItem('fb_auth_state', JSON.stringify({
+            userId: session.user.id,
+            expiresAt: session.expires_at,
+            timestamp: Date.now()
+          }));
+        }
+        
+        window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public_profile,email,pages_show_list,pages_messaging`;
+        reject(new Error('Facebook SDK not loaded, redirecting to OAuth flow'));
+      }).catch(error => {
+        console.error('Error getting session:', error);
+        reject(error);
+      });
       return;
     }
 
-    FB.login((response) => {
+    window.FB.login((response) => {
       console.log("Facebook login response:", response);
       if (response.status === 'connected') {
         // Successful login, resolve with the response
@@ -191,12 +248,12 @@ export function loginWithFacebook(): Promise<FacebookStatusResponse> {
 // Get user information from Facebook
 export function getFacebookUserInfo(userId: string, accessToken: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    if (typeof FB === 'undefined') {
+    if (typeof window.FB === 'undefined') {
       reject(new Error('Facebook SDK not loaded'));
       return;
     }
     
-    FB.api(
+    window.FB.api(
       `/${userId}`,
       'GET',
       { fields: 'id,name,email', access_token: accessToken },
@@ -214,12 +271,12 @@ export function getFacebookUserInfo(userId: string, accessToken: string): Promis
 // Get Facebook pages
 export function getFacebookPages(accessToken: string): Promise<FacebookPage[]> {
   return new Promise((resolve, reject) => {
-    if (typeof FB === 'undefined') {
+    if (typeof window.FB === 'undefined') {
       reject(new Error('Facebook SDK not loaded'));
       return;
     }
     
-    FB.api(
+    window.FB.api(
       '/me/accounts',
       'GET',
       { access_token: accessToken },
@@ -277,5 +334,46 @@ export async function getLongLivedPageToken(accessToken: string, pageId: string)
 
 // A helper function to check if the Facebook SDK is ready
 export function isFacebookSDKLoaded(): boolean {
-  return typeof FB !== 'undefined';
+  return typeof window.FB !== 'undefined';
+}
+
+// Helper to restore saved auth state after returning from Facebook
+export async function restoreFacebookAuthState(): Promise<boolean> {
+  try {
+    const savedState = localStorage.getItem('fb_auth_state');
+    if (!savedState) {
+      return false;
+    }
+    
+    const parsedState = JSON.parse(savedState);
+    const { userId, expiresAt, timestamp } = parsedState;
+    
+    // If saved state is older than 15 minutes, ignore it
+    if (Date.now() - timestamp > 15 * 60 * 1000) {
+      localStorage.removeItem('fb_auth_state');
+      return false;
+    }
+    
+    // Check if we're already logged in
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      return true; // Already authenticated
+    }
+    
+    // Get the current session
+    const { data, error } = await supabase.auth.refreshSession();
+    
+    if (error || !data.session) {
+      console.error('Failed to restore auth state:', error);
+      return false;
+    }
+    
+    // Clean up stored state
+    localStorage.removeItem('fb_auth_state');
+    
+    return true;
+  } catch (error) {
+    console.error('Error restoring Facebook auth state:', error);
+    return false;
+  }
 }
