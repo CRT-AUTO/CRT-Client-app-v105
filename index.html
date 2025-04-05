@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Assistant Platform</title>
+    <meta name="description" content="AI Assistant Platform for social media management">
+    <!-- Force no caching during development -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <style>
+      /* Ensure Facebook button container is visible with correct dimensions */
+      .facebook-login-container {
+        min-height: 40px;
+        display: flex;
+        justify-content: center;
+        width: 100%;
+      }
+      .fb-login-button {
+        width: 100% !important;
+      }
+      .fb-login-button iframe {
+        width: 100% !important;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Facebook SDK root element -->
+    <div id="fb-root"></div>
+    
+    <!-- Facebook SDK -->
+    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v22.0&appId=640658285372333"></script>
+    
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+# Facebook Data Deletion Callback
+/data-deletion /.netlify/functions/meta-data-deletion 200
+
+# Meta Webhook Routes
+/api/webhooks/* /.netlify/functions/meta-webhook-handler 200
+
+# Explicit OAuth callback redirects
+/oauth/facebook/callback /index.html 200
+/oauth/instagram/callback /index.html 200
+
+# Handle SPA routing - This will handle all other routes
+/* /index.html 200

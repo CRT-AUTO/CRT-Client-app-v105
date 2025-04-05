@@ -1,0 +1,46 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  
+[build.environment]
+  NODE_VERSION = "18"
+  # Tell Netlify's secrets scanner to ignore certain keys that are safe to expose
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_META_APP_ID,VITE_SUPABASE_ANON_KEY,VITE_APP_URL"
+  # Disable Go installation
+  NETLIFY_USE_YARN = "false"
+  NETLIFY_GO_SKIP_INSTALL = "true"
+  NETLIFY_USE_BUILTIN_NODE = "true"
+  ZISI_GO_SKIP_INSTALL = "true"
+
+# Facebook Data Deletion Callback - Specific route that takes precedence
+[[redirects]]
+  from = "/data-deletion"
+  to = "/.netlify/functions/meta-data-deletion"
+  status = 200
+  force = true
+
+# Meta Webhook Routes - These take precedence
+[[redirects]]
+  from = "/api/webhooks/*"
+  to = "/.netlify/functions/meta-webhook-handler"
+  status = 200
+  force = true
+
+# Explicit OAuth callback redirects
+[[redirects]]
+  from = "/oauth/facebook/callback"
+  to = "/index.html"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/oauth/instagram/callback"
+  to = "/index.html"
+  status = 200
+  force = true
+
+# Handle SPA routing - This will handle all other routes
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
