@@ -3,6 +3,7 @@ import { Facebook, Instagram, Bot, Trash2, Book, AlertTriangle, Globe, User, Loc
 import { supabase } from '../lib/supabase';
 import { getSocialConnections, getWebhookConfigsByUserId } from '../lib/api';
 import { logout } from '../lib/auth';
+import { checkFacebookLoginStatus, loginWithFacebook } from '../lib/facebookAuth';
 import type { SocialConnection, WebhookConfig } from '../types';
 import LoadingIndicator from '../components/LoadingIndicator';
 import ErrorAlert from '../components/ErrorAlert';
@@ -16,6 +17,7 @@ export default function Settings() {
   const [fbConnecting, setFbConnecting] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
   const [userSince, setUserSince] = useState<string>('');
+  const [fbDebugInfo, setFbDebugInfo] = useState<string[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -67,15 +69,101 @@ export default function Settings() {
   const getInstagramConnection = () => {
     return socialConnections.find(conn => conn.ig_account_id);
   };
+  
+  const addFbDebugInfo = (message: string) => {
+    console.log(`Facebook Connect: ${message}`);
+    setFbDebugInfo(prev => [...prev.slice(-9), message]);
+  };
 
   const handleFacebookConnect = async () => {
     setFbConnecting(true);
+    setError(null);
+    
     try {
-      // Direct to OAuth flow
-      const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
-      window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${import.meta.env.VITE_META_APP_ID}&redirect_uri=${redirectUri}&scope=pages_show_list,pages_messaging&response_type=code`;
+      addFbDebugInfo("Starting Facebook connection process");
+      
+      // Check if FB SDK is loaded correctly
+      if (typeof window.FB === 'undefined') {
+        addFbDebugInfo("Facebook SDK not loaded, trying direct OAuth flow");
+        
+        // Direct to OAuth flow
+        const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
+        const appId = import.meta.env.VITE_META_APP_ID;
+        
+        if (!appId) {
+          throw new Error('Facebook App ID is missing in environment variables');
+        }
+        
+        // Save the current auth session in localStorage before redirecting
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            // Store a minimal version of the session to maintain auth state
+            localStorage.setItem('fb_auth_state', JSON.stringify({
+              userId: session.user.id,
+              expiresAt: session.expires_at,
+              timestamp: Date.now()
+            }));
+            addFbDebugInfo("Saved authentication state to localStorage");
+          }
+        } catch (sessionError) {
+          addFbDebugInfo(`Error saving auth state: ${sessionError instanceof Error ? sessionError.message : 'Unknown error'}`);
+        }
+        
+        addFbDebugInfo(`Redirecting to Facebook OAuth URL`);
+        window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email,pages_show_list,pages_messaging&response_type=code`;
+        return;
+      }
+      
+      // If FB SDK is loaded, use it to initiate login
+      addFbDebugInfo("Facebook SDK loaded, checking login status");
+      const statusResponse = await checkFacebookLoginStatus();
+      
+      if (statusResponse.status === 'connected' && statusResponse.authResponse) {
+        // User is already logged into Facebook and authorized the app
+        addFbDebugInfo("User already connected to Facebook, proceeding to page selection");
+        
+        try {
+          // Save the current auth session in localStorage before redirecting
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            localStorage.setItem('fb_auth_state', JSON.stringify({
+              userId: session.user.id,
+              expiresAt: session.expires_at,
+              timestamp: Date.now()
+            }));
+            addFbDebugInfo("Saved authentication state to localStorage");
+          }
+        } catch (sessionError) {
+          addFbDebugInfo(`Error saving auth state: ${sessionError instanceof Error ? sessionError.message : 'Unknown error'}`);
+        }
+        
+        // Redirect to the OAuth flow to complete the process
+        const redirectUri = `${window.location.origin}/oauth/facebook/callback`;
+        const appId = import.meta.env.VITE_META_APP_ID;
+        
+        if (!appId) {
+          throw new Error('Facebook App ID is missing in environment variables');
+        }
+        
+        addFbDebugInfo("Redirecting to Facebook OAuth flow");
+        window.location.href = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email,pages_show_list,pages_messaging&response_type=code`;
+      } else {
+        // User needs to log in or authorize the app
+        addFbDebugInfo(`Facebook status: ${statusResponse.status}, initiating login flow`);
+        
+        const loginResponse = await loginWithFacebook();
+        
+        if (loginResponse.status === 'connected') {
+          addFbDebugInfo("Facebook login successful, redirect should happen automatically");
+        } else {
+          addFbDebugInfo(`Facebook login was not successful: ${loginResponse.status}`);
+          throw new Error(`Facebook login failed: ${loginResponse.status}`);
+        }
+      }
     } catch (err) {
       console.error('Error connecting to Facebook:', err);
+      addFbDebugInfo(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setError(err instanceof Error ? err.message : 'Failed to connect to Facebook');
     } finally {
       setFbConnecting(false);
@@ -283,6 +371,17 @@ export default function Settings() {
                         </>
                       )}
                     </button>
+                    
+                    {fbDebugInfo.length > 0 && (
+                      <div className="mt-4 p-3 bg-gray-50 rounded-md">
+                        <p className="text-xs text-gray-700 font-medium">Connection Status:</p>
+                        <div className="text-xs text-gray-600 mt-1 space-y-1">
+                          {fbDebugInfo.map((info, idx) => (
+                            <div key={idx} className="bg-white p-1 rounded">{info}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
