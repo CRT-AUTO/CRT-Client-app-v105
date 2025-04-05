@@ -11,7 +11,6 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <style>
-      /* Ensure Facebook button container is visible with correct dimensions */
       .facebook-login-container {
         min-height: 40px;
         display: flex;
@@ -39,16 +38,12 @@
           xfbml: true,
           version: 'v18.0'
         });
-          
         FB.AppEvents.logPageView();
-        
-        // Check if checkLoginState function is defined
         if (typeof window.checkLoginState === 'function') {
-          // If we have the function, check login status
           window.checkLoginState();
         }
       };
-    
+
       (function(d, s, id){
          var js, fjs = d.getElementsByTagName(s)[0];
          if (d.getElementById(id)) {return;}
