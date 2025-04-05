@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { handleFacebookStatusChange } from '../lib/facebookAuth';
 import { AlertTriangle } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { handleFacebookStatusChange } from '../lib/facebookAuth';
 
 interface FacebookLoginButtonProps {
   onLoginSuccess?: () => void;
@@ -31,7 +32,6 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
   const [sdkError, setSdkError] = useState('');
   const [buttonRendered, setButtonRendered] = useState(false);
 
-  // Define the global callback function that the FB button will call
   useEffect(() => {
     window.checkLoginState = function() {
       if (typeof window.FB !== 'undefined') {
@@ -45,10 +45,8 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
       }
     };
 
-    // Process the login status
     const statusChangeCallback = async (response: any) => {
       console.log('Facebook login status response:', response);
-      
       try {
         const success = await handleFacebookStatusChange(response);
         if (success && onLoginSuccess) {
@@ -65,21 +63,17 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
       }
     };
 
-    // Check periodically if the Facebook SDK is loaded
     const checkFBInterval = setInterval(() => {
       if (typeof window.FB !== 'undefined' && buttonRef.current) {
         console.log("Facebook SDK loaded, parsing XFBML");
         setSdkLoaded(true);
         try {
-          // Remove any existing button first to prevent duplication
           const existingButtons = buttonRef.current.querySelectorAll('.fb-login-button');
           existingButtons.forEach(button => {
             if (button.id !== buttonId) {
               button.remove();
             }
           });
-          
-          // Then parse the XFBML
           window.FB.XFBML.parse(buttonRef.current);
           setButtonRendered(true);
         } catch (e) {
@@ -89,8 +83,7 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
         clearInterval(checkFBInterval);
       }
     }, 500);
-    
-    // Cleanup interval after 20 seconds to prevent memory leaks
+
     setTimeout(() => {
       if (!sdkLoaded) {
         clearInterval(checkFBInterval);
@@ -98,14 +91,11 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
       }
     }, 20000);
 
-    // Cleanup function
     return () => {
       clearInterval(checkFBInterval);
-      // Keep the global checkLoginState function as other buttons might need it
     };
   }, [scope, onLoginSuccess, onLoginFailure, buttonId, sdkLoaded]);
 
-  // Force manual initialization if FB SDK is available but not loaded properly
   const handleManualInitialization = () => {
     if (typeof window.FB !== 'undefined' && buttonRef.current) {
       try {
@@ -117,13 +107,10 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
         console.error("Error in manual initialization:", e);
       }
     } else {
-      // If the SDK is not available, try reloading the script
       const fbScript = document.getElementById('facebook-jssdk');
       if (fbScript) {
         fbScript.remove();
       }
-      
-      // Create and append a new script element
       const script = document.createElement('script');
       script.id = 'facebook-jssdk';
       script.src = "https://connect.facebook.net/en_US/sdk.js";
@@ -131,11 +118,8 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
       script.defer = true;
       script.crossOrigin = "anonymous";
       document.head.appendChild(script);
-      
       script.onload = () => {
         console.log("Facebook SDK manually reloaded");
-        
-        // Initialize the SDK
         if (typeof window.FB !== 'undefined') {
           window.FB.init({
             appId: import.meta.env.VITE_META_APP_ID,
@@ -143,7 +127,6 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
             xfbml: true,
             version: 'v18.0'
           });
-          
           if (buttonRef.current) {
             window.FB.XFBML.parse(buttonRef.current);
             setSdkError('');
@@ -152,35 +135,28 @@ const FacebookLoginButton: React.FC<FacebookLoginButtonProps> = ({
           }
         }
       };
-      
       script.onerror = () => {
         setSdkError('Failed to load Facebook SDK. Please check your internet connection.');
       };
     }
   };
 
-  // Fallback to direct URL if button doesn't load
   const handleDirectLogin = () => {
     const appId = import.meta.env.VITE_META_APP_ID;
     if (!appId) {
       setSdkError('Facebook App ID is missing. Please check your configuration.');
       return;
     }
-    
-    // Save the current auth session in localStorage before redirecting
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        // Store a minimal version of the session to maintain auth state
         localStorage.setItem('fb_auth_state', JSON.stringify({
           userId: session.user.id,
           expiresAt: session.expires_at,
           timestamp: Date.now()
         }));
       }
-      
-      const redirectUri = encodeURIComponent(`${window.location.origin}/oauth/facebook/callback`);
+      const redirectUri = encodeURIComponent(`https://crt-tech.org/oauth/facebook/callback`);
       const loginUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scope)}&response_type=code`;
-      
       console.log('Redirecting to Facebook login URL:', loginUrl);
       window.location.href = loginUrl;
     }).catch(error => {
