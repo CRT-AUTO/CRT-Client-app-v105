@@ -31,7 +31,32 @@
     <div id="fb-root"></div>
     
     <!-- Facebook SDK -->
-    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js#xfbml=1&version=v22.0&appId=640658285372333"></script>
+    <script>
+      window.fbAsyncInit = function() {
+        FB.init({
+          appId: import.meta.env.VITE_META_APP_ID,
+          cookie: true,
+          xfbml: true,
+          version: 'v18.0'
+        });
+          
+        FB.AppEvents.logPageView();
+        
+        // Check if checkLoginState function is defined
+        if (typeof window.checkLoginState === 'function') {
+          // If we have the function, check login status
+          window.checkLoginState();
+        }
+      };
+    
+      (function(d, s, id){
+         var js, fjs = d.getElementsByTagName(s)[0];
+         if (d.getElementById(id)) {return;}
+         js = d.createElement(s); js.id = id;
+         js.src = "https://connect.facebook.net/en_US/sdk.js";
+         fjs.parentNode.insertBefore(js, fjs);
+       }(document, 'script', 'facebook-jssdk'));
+    </script>
     
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
